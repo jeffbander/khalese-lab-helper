@@ -1468,31 +1468,108 @@ To generate a complete, publication-ready paper:
                   </span>
                 </div>
 
-                {/* Pipeline progress bar */}
-                {runStatus.pipeline && runStatus.pipeline.length > 0 && (
-                  <>
-                    <div style={{ marginBottom: "16px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
-                        <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Pipeline</span>
-                        <span style={{ fontSize: "12px", color: "var(--accent)", fontFamily: "JetBrains Mono, monospace" }}>
-                          {runStatus.pipeline.filter((s: PipelineStage) => s.status === "completed").length}/{runStatus.pipeline.length}
+                {/* Pipeline progress bar with estimated time */}
+                {runStatus.pipeline && runStatus.pipeline.length > 0 && (() => {
+                  const ESTIMATED_STAGE_SECONDS: Record<string, number> = {
+                    survey: 90,
+                    ideation: 120,
+                    direction_selection_gate: 30,
+                    theory: 300,
+                    theory_review_gate: 60,
+                    experiment: 120,
+                    writer: 180,
+                  };
+                  const completed = runStatus.pipeline!.filter((s: PipelineStage) => s.status === "completed");
+                  const inProgress = runStatus.pipeline!.find((s: PipelineStage) => s.status === "in_progress");
+                  const total = runStatus.pipeline!.length;
+
+                  // Calculate weighted progress including partial progress on current stage
+                  const totalEstSec = runStatus.pipeline!.reduce((sum: number, s: PipelineStage) =>
+                    sum + (ESTIMATED_STAGE_SECONDS[s.name] || 120), 0);
+                  let completedSec = completed.reduce((sum: number, s: PipelineStage) => {
+                    if (s.started_at && s.completed_at) {
+                      return sum + (new Date(s.completed_at).getTime() - new Date(s.started_at).getTime()) / 1000;
+                    }
+                    return sum + (ESTIMATED_STAGE_SECONDS[s.name] || 120);
+                  }, 0);
+                  let currentStagePct = 0;
+                  if (inProgress?.started_at) {
+                    const elapsed = (Date.now() - new Date(inProgress.started_at).getTime()) / 1000;
+                    const est = ESTIMATED_STAGE_SECONDS[inProgress.name] || 120;
+                    currentStagePct = Math.min(elapsed / est, 0.95);
+                    completedSec += elapsed;
+                  }
+                  const pct = Math.min(((completed.length + currentStagePct) / total) * 100, 99);
+
+                  // Estimated remaining
+                  const remainingSec = Math.max(totalEstSec - completedSec, 0);
+                  const remainMin = Math.ceil(remainingSec / 60);
+                  const etaText = runStatus.status === "completed" ? "Done!" :
+                    remainMin <= 1 ? "~1 min remaining" : `~${remainMin} min remaining`;
+
+                  return (
+                    <div style={{ marginBottom: "20px" }}>
+                      {/* Labels */}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-secondary)" }}>Pipeline</span>
+                          <span style={{
+                            fontSize: "12px",
+                            padding: "2px 8px",
+                            borderRadius: "10px",
+                            background: "rgba(232, 168, 56, 0.1)",
+                            color: "var(--accent)",
+                            fontFamily: "JetBrains Mono, monospace",
+                          }}>
+                            {completed.length}/{total}
+                          </span>
+                        </div>
+                        <span style={{
+                          fontSize: "12px",
+                          color: "var(--text-muted)",
+                          fontFamily: "JetBrains Mono, monospace",
+                        }}>
+                          {etaText}
                         </span>
                       </div>
-                      <div style={{ height: "4px", borderRadius: "2px", background: "rgba(74, 56, 40, 0.5)", overflow: "hidden" }}>
+
+                      {/* Progress bar */}
+                      <div style={{
+                        height: "10px",
+                        borderRadius: "5px",
+                        background: "rgba(74, 56, 40, 0.5)",
+                        overflow: "hidden",
+                        position: "relative",
+                      }}>
                         <div
+                          className="progress-stripe"
                           style={{
                             height: "100%",
-                            width: `${(runStatus.pipeline.filter((s: PipelineStage) => s.status === "completed").length / runStatus.pipeline.length) * 100}%`,
-                            background: "linear-gradient(90deg, #6b8c42, #e8c845, #e8a838)",
-                            borderRadius: "2px",
-                            transition: "width 0.5s ease",
+                            width: `${pct}%`,
+                            background: "linear-gradient(90deg, #6b8c42, #e8c845, #c45c3e, #e8a838)",
+                            borderRadius: "5px",
+                            transition: "width 1s ease",
                           }}
                         />
                       </div>
-                    </div>
 
-                    {/* Pipeline stages */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      {/* Percentage */}
+                      <div style={{
+                        textAlign: "right",
+                        marginTop: "4px",
+                        fontSize: "11px",
+                        fontFamily: "JetBrains Mono, monospace",
+                        color: "var(--text-muted)",
+                      }}>
+                        {Math.round(pct)}%
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Pipeline stages */}
+                {runStatus.pipeline && runStatus.pipeline.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                       {runStatus.pipeline.map((stage: PipelineStage, i: number) => {
                         let duration = "";
                         if (stage.started_at && stage.completed_at) {
@@ -1586,8 +1663,7 @@ To generate a complete, publication-ready paper:
                           </div>
                         );
                       })}
-                    </div>
-                  </>
+                  </div>
                 )}
 
                 {/* Legacy agent_steps fallback */}
