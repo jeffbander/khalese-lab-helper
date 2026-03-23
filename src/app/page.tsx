@@ -352,15 +352,22 @@ export default function KhaleseLabHelper() {
         const data: RunStatus = await response.json();
         setRunStatus(data);
 
-        // Detect stale: build a fingerprint from pipeline statuses
-        const currentStage = data.pipeline
-          ?.find((s: PipelineStage) => s.status === "in_progress")?.name || data.status;
-        if (currentStage !== lastStatusRef.current) {
-          lastStatusRef.current = currentStage;
+        // Detect stale: build a fingerprint from pipeline statuses + completed count
+        const activeStage = data.pipeline
+          ?.find((s: PipelineStage) => s.status === "in_progress");
+        const completedCount = data.pipeline
+          ?.filter((s: PipelineStage) => s.status === "completed").length ?? 0;
+        const fingerprint = `${activeStage?.name || data.status}:${completedCount}`;
+        if (fingerprint !== lastStatusRef.current) {
+          lastStatusRef.current = fingerprint;
           lastStatusChangeRef.current = Date.now();
           setStaleWarning(false);
-        } else if (Date.now() - lastStatusChangeRef.current > 5 * 60 * 1000) {
-          setStaleWarning(true);
+        } else {
+          // Use longer timeout for theory stage (15 min) vs others (5 min)
+          const staleTimeout = activeStage?.name === "theory" ? 15 * 60 * 1000 : 5 * 60 * 1000;
+          if (Date.now() - lastStatusChangeRef.current > staleTimeout) {
+            setStaleWarning(true);
+          }
         }
 
         if (data.status === "completed") {
@@ -1642,6 +1649,34 @@ To generate a complete, publication-ready paper:
                               }}>
                                 {stage.description || stage.name}
                               </div>
+
+                              {/* Completed stage summary */}
+                              {stage.status === "completed" && stage.outputs && (
+                                <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "3px", fontFamily: "JetBrains Mono, monospace" }}>
+                                  {stage.outputs.papers && `Found ${stage.outputs.papers.length} papers`}
+                                  {stage.outputs.directions && `Generated ${stage.outputs.directions.length} directions`}
+                                  {stage.outputs.text_summary && !stage.outputs.papers && !stage.outputs.directions &&
+                                    (stage.outputs.text_summary as string).slice(0, 80) + ((stage.outputs.text_summary as string).length > 80 ? "..." : "")}
+                                </div>
+                              )}
+
+                              {/* Active stage hint */}
+                              {stage.status === "in_progress" && stage.name === "theory" && (
+                                <div style={{ fontSize: "11px", color: "var(--accent)", marginTop: "3px", fontFamily: "JetBrains Mono, monospace" }}>
+                                  Running proof loop (formalize → prove → verify → refine)... this can take 10-20 min
+                                </div>
+                              )}
+                              {stage.status === "in_progress" && stage.name === "survey" && (
+                                <div style={{ fontSize: "11px", color: "var(--accent)", marginTop: "3px", fontFamily: "JetBrains Mono, monospace" }}>
+                                  Searching arXiv, Semantic Scholar, citation graphs...
+                                </div>
+                              )}
+                              {stage.status === "in_progress" && stage.name === "writer" && (
+                                <div style={{ fontSize: "11px", color: "var(--accent)", marginTop: "3px", fontFamily: "JetBrains Mono, monospace" }}>
+                                  Assembling LaTeX paper from all artifacts...
+                                </div>
+                              )}
+
                               {stage.error_message && (
                                 <div style={{ fontSize: "11px", color: "var(--error)", marginTop: "2px" }}>
                                   {stage.error_message}

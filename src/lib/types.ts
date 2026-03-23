@@ -16,6 +16,13 @@ export interface PipelineStage {
   started_at: string | null;
   completed_at: string | null;
   error_message: string;
+  outputs?: {
+    papers?: { title: string; authors?: string[]; year?: number }[];
+    directions?: { title?: string; description?: string }[];
+    text_summary?: string;
+    token_usage?: Record<string, number>;
+    [key: string]: unknown;
+  };
 }
 
 export interface RunStatus {

@@ -13,15 +13,32 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // Try direct run endpoint first
     const response = await fetch(`${EUREKACLAW_URL}/api/runs/${runId}`);
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: "Failed to get session status" },
-        { status: response.status }
-      );
+    if (response.ok) {
+      const data = await response.json();
+      if (!data.error) {
+        return NextResponse.json(data);
+      }
     }
-    const data = await response.json();
-    return NextResponse.json(data);
+
+    // Fall back to list endpoint and find the run
+    const listResponse = await fetch(`${EUREKACLAW_URL}/api/runs`);
+    if (listResponse.ok) {
+      const listData = await listResponse.json();
+      const runs = listData.runs || listData;
+      const run = Array.isArray(runs)
+        ? runs.find((r: Record<string, unknown>) => r.run_id === runId)
+        : null;
+      if (run) {
+        return NextResponse.json(run);
+      }
+    }
+
+    return NextResponse.json(
+      { error: "Run not found" },
+      { status: 404 }
+    );
   } catch {
     return NextResponse.json(
       { error: "EurekaClaw backend is not running", code: "BACKEND_OFFLINE" },
