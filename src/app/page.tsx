@@ -24,6 +24,99 @@ const FALLBACK_STEPS = [
   "Finalizing camera-ready manuscript...",
 ];
 
+// ─── RESOURCE TYPES FOR CATAN THEME ────────────────────────
+const RESOURCES = [
+  { name: "Wood", color: "#6b8c42", icon: "🌲", desc: "Literature" },
+  { name: "Brick", color: "#c45c3e", icon: "🧱", desc: "Methods" },
+  { name: "Wheat", color: "#e8c845", icon: "🌾", desc: "Data" },
+  { name: "Sheep", color: "#8bc34a", icon: "🐑", desc: "Analysis" },
+  { name: "Ore", color: "#78909c", icon: "⛰️", desc: "Synthesis" },
+];
+
+// ─── ANIMATED HEX TILES FOR BACKGROUND ─────────────────────
+function HexBackground() {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        pointerEvents: "none",
+        zIndex: 0,
+        overflow: "hidden",
+      }}
+    >
+      <div className="hex-pattern" />
+      {/* Floating hex accents */}
+      {[
+        { x: "10%", y: "20%", size: 80, color: "#6b8c42", delay: 0 },
+        { x: "85%", y: "15%", size: 60, color: "#c45c3e", delay: 1 },
+        { x: "75%", y: "75%", size: 70, color: "#e8c845", delay: 2 },
+        { x: "15%", y: "80%", size: 50, color: "#78909c", delay: 0.5 },
+        { x: "50%", y: "10%", size: 45, color: "#8bc34a", delay: 1.5 },
+        { x: "90%", y: "50%", size: 55, color: "#e8a838", delay: 2.5 },
+      ].map((hex, i) => (
+        <div
+          key={i}
+          style={{
+            position: "absolute",
+            left: hex.x,
+            top: hex.y,
+            width: hex.size,
+            height: hex.size * 1.1547,
+            clipPath:
+              "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
+            background: hex.color,
+            opacity: 0.04,
+            animation: `float 4s ease-in-out ${hex.delay}s infinite`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ─── HEXAGONAL LOGO ────────────────────────────────────────
+function HexLogo({ size = 80 }: { size?: number }) {
+  return (
+    <div
+      style={{
+        width: size,
+        height: size * 1.1547,
+        clipPath:
+          "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
+        background: "linear-gradient(135deg, #e8a838, #c45c3e, #6b8c42)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: size * 0.45,
+        fontWeight: 700,
+        color: "#1a1410",
+        position: "relative",
+        boxShadow: "0 0 40px rgba(232, 168, 56, 0.3)",
+      }}
+    >
+      <div
+        style={{
+          width: size - 6,
+          height: (size - 6) * 1.1547,
+          clipPath:
+            "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
+          background: "linear-gradient(135deg, #e8a838 0%, #d4942a 50%, #c45c3e 100%)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          position: "absolute",
+        }}
+      >
+        K
+      </div>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════
@@ -75,7 +168,6 @@ export default function KhaleseLabHelper() {
     setMessages([]);
     setApiKeyError(false);
 
-    // Send the initial topic to Khalese
     sendToKhalese([
       {
         id: "init",
@@ -112,14 +204,12 @@ export default function KhaleseLabHelper() {
         throw new Error(err.error || "Chat request failed");
       }
 
-      // Read the streaming response
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No response stream");
 
       const assistantId = `asst-${Date.now()}`;
       let fullContent = "";
 
-      // Add empty assistant message
       setMessages((prev) => [
         ...prev,
         { id: assistantId, role: "assistant", content: "" },
@@ -140,7 +230,6 @@ export default function KhaleseLabHelper() {
         );
       }
 
-      // Check if Khalese signaled research is ready
       if (fullContent.includes("[RESEARCH_READY]")) {
         const match = fullContent.match(
           /\[RESEARCH_READY\]\s*Topic:\s*(.+?)\s*Domain:\s*(.+?)\s*Mode:\s*(.+?)\s*Query:\s*(.+?)\s*Context:\s*([\s\S]*?)\s*\[\/RESEARCH_READY\]/
@@ -154,13 +243,11 @@ export default function KhaleseLabHelper() {
             additionalContext: match[5].trim(),
           };
           setResearchConfig(config);
-          // Auto-start research after a short delay
           setTimeout(() => startResearch(config), 2000);
         }
       }
     } catch (err) {
       console.error("Chat error:", err);
-      // Add error message from Khalese
       setMessages((prev) => [
         ...prev,
         {
@@ -195,7 +282,6 @@ export default function KhaleseLabHelper() {
   const startResearch = async (config: ResearchConfig) => {
     setScreen("research");
 
-    // Try EurekaClaw backend first
     try {
       const response = await fetch("/api/research", {
         method: "POST",
@@ -213,7 +299,6 @@ export default function KhaleseLabHelper() {
         const data = await response.json();
         setRunId(data.run_id);
         setBackendOnline(true);
-        // Start polling
         startPolling(data.run_id);
         return;
       }
@@ -257,14 +342,13 @@ export default function KhaleseLabHelper() {
     }, 3000);
   }, []);
 
-  // Cleanup polling on unmount
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
 
-  // ── FALLBACK PIPELINE (when EurekaClaw is offline) ──
+  // ── FALLBACK PIPELINE ──
   const runFallbackPipeline = (config: ResearchConfig) => {
     const steps = FALLBACK_STEPS.map((label) => ({ label, status: "pending" }));
     steps[0].status = "running";
@@ -398,6 +482,8 @@ To generate a complete, publication-ready paper:
   // ═══════════════════════════════════════════════════════
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <HexBackground />
+
       {/* ── HEADER ── */}
       {screen !== "login" && (
         <header
@@ -407,23 +493,26 @@ To generate a complete, publication-ready paper:
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            background: "rgba(10, 15, 26, 0.8)",
+            background: "rgba(26, 20, 16, 0.85)",
             backdropFilter: "blur(12px)",
+            position: "relative",
+            zIndex: 10,
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <div
               style={{
                 width: "36px",
-                height: "36px",
-                borderRadius: "8px",
-                background: "linear-gradient(135deg, #22d3ee, #10b981)",
+                height: "41px",
+                clipPath:
+                  "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
+                background: "linear-gradient(135deg, #e8a838, #c45c3e)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: "18px",
+                fontSize: "16px",
                 fontWeight: 700,
-                color: "#0a0f1a",
+                color: "#1a1410",
               }}
             >
               K
@@ -442,14 +531,15 @@ To generate a complete, publication-ready paper:
             </div>
           </div>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            {/* Resource badges */}
             <span
               style={{
                 fontSize: "11px",
                 padding: "4px 10px",
                 borderRadius: "12px",
-                background: "rgba(34, 211, 238, 0.1)",
+                background: "rgba(232, 168, 56, 0.1)",
                 color: "var(--accent)",
-                border: "1px solid rgba(34, 211, 238, 0.2)",
+                border: "1px solid rgba(232, 168, 56, 0.2)",
                 fontFamily: "JetBrains Mono, monospace",
               }}
             >
@@ -460,9 +550,9 @@ To generate a complete, publication-ready paper:
                 fontSize: "11px",
                 padding: "4px 10px",
                 borderRadius: "12px",
-                background: "rgba(52, 211, 153, 0.1)",
+                background: "rgba(107, 140, 66, 0.1)",
                 color: "var(--success)",
-                border: "1px solid rgba(52, 211, 153, 0.2)",
+                border: "1px solid rgba(107, 140, 66, 0.2)",
                 fontFamily: "JetBrains Mono, monospace",
               }}
             >
@@ -475,13 +565,13 @@ To generate a complete, publication-ready paper:
                   padding: "4px 10px",
                   borderRadius: "12px",
                   background: backendOnline
-                    ? "rgba(52, 211, 153, 0.1)"
-                    : "rgba(248, 113, 113, 0.1)",
+                    ? "rgba(107, 140, 66, 0.1)"
+                    : "rgba(212, 84, 84, 0.1)",
                   color: backendOnline ? "var(--success)" : "var(--error)",
                   border: `1px solid ${
                     backendOnline
-                      ? "rgba(52, 211, 153, 0.2)"
-                      : "rgba(248, 113, 113, 0.2)"
+                      ? "rgba(107, 140, 66, 0.2)"
+                      : "rgba(212, 84, 84, 0.2)"
                   }`,
                   fontFamily: "JetBrains Mono, monospace",
                 }}
@@ -500,109 +590,235 @@ To generate a complete, publication-ready paper:
           alignItems: "center",
           justifyContent: "center",
           padding: "32px",
+          position: "relative",
+          zIndex: 1,
         }}
       >
         {/* ════════ LOGIN ════════ */}
         {screen === "login" && (
           <div
             className="screen-transition"
-            style={{ textAlign: "center", maxWidth: "400px", width: "100%" }}
+            style={{ textAlign: "center", maxWidth: "480px", width: "100%" }}
           >
+            {/* Hex Board decoration */}
             <div
               style={{
-                width: "80px",
-                height: "80px",
-                borderRadius: "20px",
-                background: "linear-gradient(135deg, #22d3ee, #10b981)",
                 display: "flex",
-                alignItems: "center",
                 justifyContent: "center",
-                fontSize: "36px",
-                fontWeight: 700,
-                color: "#0a0f1a",
-                margin: "0 auto 24px",
-                boxShadow: "0 0 40px rgba(34, 211, 238, 0.3)",
+                gap: "4px",
+                marginBottom: "8px",
+                opacity: 0.6,
               }}
             >
-              K
+              {RESOURCES.map((r) => (
+                <div
+                  key={r.name}
+                  className="hex-tile hex-tile-sm"
+                  style={{ background: r.color, opacity: 0.5 }}
+                >
+                  <span style={{ fontSize: "14px" }}>{r.icon}</span>
+                </div>
+              ))}
             </div>
-            <h1 style={{ fontSize: "28px", fontWeight: 700, marginBottom: "8px" }}>
+
+            {/* Logo */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                marginBottom: "24px",
+              }}
+            >
+              <HexLogo size={90} />
+            </div>
+
+            <h1
+              style={{
+                fontSize: "32px",
+                fontWeight: 700,
+                marginBottom: "8px",
+                background: "linear-gradient(135deg, #e8a838, #f5d090)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+              }}
+            >
               Khalese Lab Helper
             </h1>
+
             <p
               style={{
                 color: "var(--accent)",
                 fontFamily: "JetBrains Mono, monospace",
                 fontSize: "14px",
                 marginBottom: "8px",
-                letterSpacing: "1px",
+                letterSpacing: "2px",
+                textTransform: "uppercase",
               }}
             >
               In Runx-1 We Trust
             </p>
+
             <p
               style={{
-                color: "var(--text-muted)",
-                fontSize: "14px",
+                color: "var(--text-secondary)",
+                fontSize: "15px",
                 marginBottom: "40px",
+                lineHeight: 1.6,
               }}
             >
               AI-powered biomedical research assistant
             </p>
 
-            <input
-              type="password"
-              value={passcode}
-              onChange={(e) => setPasscode(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-              placeholder="Enter lab passcode"
-              style={{
-                width: "100%",
-                padding: "14px 20px",
-                borderRadius: "10px",
-                border: loginError
-                  ? "1px solid var(--error)"
-                  : "1px solid var(--border)",
-                background: "var(--bg-card)",
-                color: "var(--text-primary)",
-                fontSize: "16px",
-                outline: "none",
-                textAlign: "center",
-                letterSpacing: "8px",
-                fontFamily: "JetBrains Mono, monospace",
-                marginBottom: "16px",
-              }}
-              autoFocus
+            {/* Road line decoration */}
+            <div
+              className="road-line"
+              style={{ width: "60%", margin: "0 auto 32px" }}
             />
 
-            {loginError && (
-              <p style={{ color: "var(--error)", fontSize: "14px", marginBottom: "16px" }}>
-                Invalid passcode. Try again.
-              </p>
-            )}
-
-            <button
-              onClick={handleLogin}
+            {/* Login card */}
+            <div
               style={{
-                width: "100%",
-                padding: "14px",
-                borderRadius: "10px",
-                border: "none",
-                background: "linear-gradient(135deg, #22d3ee, #10b981)",
-                color: "#0a0f1a",
-                fontSize: "16px",
-                fontWeight: 600,
-                cursor: "pointer",
+                padding: "32px",
+                borderRadius: "16px",
+                background: "rgba(51, 38, 28, 0.8)",
+                border: "1px solid var(--border)",
+                backdropFilter: "blur(12px)",
+                boxShadow: "0 8px 32px rgba(0, 0, 0, 0.3)",
               }}
             >
-              Enter Lab
-            </button>
+              <div
+                style={{
+                  fontSize: "13px",
+                  color: "var(--text-muted)",
+                  marginBottom: "16px",
+                  fontFamily: "JetBrains Mono, monospace",
+                  textTransform: "uppercase",
+                  letterSpacing: "2px",
+                }}
+              >
+                Enter Settlement
+              </div>
+
+              <input
+                type="password"
+                value={passcode}
+                onChange={(e) => setPasscode(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                placeholder="Enter lab passcode"
+                style={{
+                  width: "100%",
+                  padding: "16px 20px",
+                  borderRadius: "12px",
+                  border: loginError
+                    ? "2px solid var(--error)"
+                    : "1px solid var(--border-light)",
+                  background: "rgba(26, 20, 16, 0.6)",
+                  color: "var(--text-primary)",
+                  fontSize: "18px",
+                  outline: "none",
+                  textAlign: "center",
+                  letterSpacing: "8px",
+                  fontFamily: "JetBrains Mono, monospace",
+                  marginBottom: "16px",
+                  transition: "border-color 0.3s, box-shadow 0.3s",
+                }}
+                onFocus={(e) => {
+                  if (!loginError) {
+                    e.target.style.borderColor = "var(--accent)";
+                    e.target.style.boxShadow = "0 0 0 3px rgba(232, 168, 56, 0.15)";
+                  }
+                }}
+                onBlur={(e) => {
+                  if (!loginError) {
+                    e.target.style.borderColor = "var(--border-light)";
+                    e.target.style.boxShadow = "none";
+                  }
+                }}
+                autoFocus
+              />
+
+              {loginError && (
+                <p
+                  style={{
+                    color: "var(--error)",
+                    fontSize: "14px",
+                    marginBottom: "16px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <span style={{ fontSize: "16px" }}>7</span>
+                  The robber blocks your path. Try again.
+                </p>
+              )}
+
+              <button
+                onClick={handleLogin}
+                style={{
+                  width: "100%",
+                  padding: "16px",
+                  borderRadius: "12px",
+                  border: "none",
+                  background: "linear-gradient(135deg, #e8a838, #c45c3e)",
+                  color: "#1a1410",
+                  fontSize: "16px",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  textTransform: "uppercase",
+                  letterSpacing: "2px",
+                  transition: "transform 0.2s, box-shadow 0.2s",
+                  boxShadow: "0 4px 16px rgba(232, 168, 56, 0.3)",
+                }}
+                onMouseOver={(e) => {
+                  (e.target as HTMLButtonElement).style.transform = "translateY(-2px)";
+                  (e.target as HTMLButtonElement).style.boxShadow =
+                    "0 6px 24px rgba(232, 168, 56, 0.4)";
+                }}
+                onMouseOut={(e) => {
+                  (e.target as HTMLButtonElement).style.transform = "translateY(0)";
+                  (e.target as HTMLButtonElement).style.boxShadow =
+                    "0 4px 16px rgba(232, 168, 56, 0.3)";
+                }}
+              >
+                Enter the Settlement
+              </button>
+            </div>
+
+            {/* Resource bar at bottom */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                gap: "12px",
+                marginTop: "32px",
+                flexWrap: "wrap",
+              }}
+            >
+              {RESOURCES.map((r) => (
+                <div
+                  key={r.name}
+                  className="resource-badge"
+                  style={{
+                    background: `${r.color}15`,
+                    color: r.color,
+                    border: `1px solid ${r.color}30`,
+                  }}
+                >
+                  <span>{r.icon}</span>
+                  {r.desc}
+                </div>
+              ))}
+            </div>
 
             <p
               style={{
                 color: "var(--text-muted)",
                 fontSize: "12px",
-                marginTop: "32px",
+                marginTop: "24px",
+                fontFamily: "JetBrains Mono, monospace",
               }}
             >
               Powered by EurekaClaw + AutoResearch
@@ -616,9 +832,33 @@ To generate a complete, publication-ready paper:
             className="screen-transition"
             style={{ maxWidth: "640px", width: "100%", textAlign: "center" }}
           >
-            <div style={{ fontSize: "48px", marginBottom: "16px" }}>🧬</div>
+            {/* Hex cluster header */}
+            <div style={{ display: "flex", justifyContent: "center", gap: "4px", marginBottom: "20px" }}>
+              {RESOURCES.slice(0, 3).map((r) => (
+                <div
+                  key={r.name}
+                  className="hex-tile hex-tile-sm float"
+                  style={{
+                    background: r.color,
+                    opacity: 0.7,
+                    animationDelay: `${Math.random() * 2}s`,
+                  }}
+                >
+                  <span style={{ fontSize: "16px" }}>{r.icon}</span>
+                </div>
+              ))}
+            </div>
+
             <h2
-              style={{ fontSize: "24px", fontWeight: 600, marginBottom: "8px" }}
+              style={{
+                fontSize: "26px",
+                fontWeight: 600,
+                marginBottom: "8px",
+                background: "linear-gradient(135deg, #e8a838, #f5d090)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+              }}
             >
               What would you like to research?
             </h2>
@@ -627,10 +867,11 @@ To generate a complete, publication-ready paper:
                 color: "var(--text-secondary)",
                 marginBottom: "32px",
                 fontSize: "16px",
+                lineHeight: 1.6,
               }}
             >
-              Enter a biomedical research topic and Khalese will guide you
-              through the process with smart clarifying questions.
+              Gather your resources and let Khalese guide you
+              through the research landscape.
             </p>
 
             <textarea
@@ -656,6 +897,15 @@ To generate a complete, publication-ready paper:
                 resize: "vertical",
                 fontFamily: "Inter, sans-serif",
                 lineHeight: "1.6",
+                transition: "border-color 0.3s, box-shadow 0.3s",
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = "var(--accent)";
+                e.target.style.boxShadow = "0 0 0 3px rgba(232, 168, 56, 0.1)";
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = "var(--border)";
+                e.target.style.boxShadow = "none";
               }}
               autoFocus
             />
@@ -666,30 +916,38 @@ To generate a complete, publication-ready paper:
               style={{
                 marginTop: "16px",
                 padding: "14px 48px",
-                borderRadius: "10px",
+                borderRadius: "12px",
                 border: "none",
                 background: topic.trim()
-                  ? "linear-gradient(135deg, #22d3ee, #10b981)"
+                  ? "linear-gradient(135deg, #e8a838, #c45c3e)"
                   : "var(--bg-card)",
-                color: topic.trim() ? "#0a0f1a" : "var(--text-muted)",
+                color: topic.trim() ? "#1a1410" : "var(--text-muted)",
                 fontSize: "16px",
-                fontWeight: 600,
+                fontWeight: 700,
                 cursor: topic.trim() ? "pointer" : "not-allowed",
+                textTransform: "uppercase",
+                letterSpacing: "1px",
+                transition: "transform 0.2s, box-shadow 0.2s",
+                boxShadow: topic.trim() ? "0 4px 16px rgba(232, 168, 56, 0.3)" : "none",
               }}
             >
               Talk to Khalese
             </button>
 
-            {/* Quick starts */}
+            {/* Quick starts as resource tiles */}
             <div style={{ marginTop: "32px" }}>
+              <div className="road-line" style={{ width: "40%", margin: "0 auto 20px" }} />
               <p
                 style={{
                   fontSize: "13px",
                   color: "var(--text-muted)",
                   marginBottom: "12px",
+                  fontFamily: "JetBrains Mono, monospace",
+                  textTransform: "uppercase",
+                  letterSpacing: "1px",
                 }}
               >
-                Quick starts:
+                Trade Routes
               </p>
               <div
                 style={{
@@ -700,25 +958,37 @@ To generate a complete, publication-ready paper:
                 }}
               >
                 {[
-                  "RUNX1 in hematopoietic stem cells",
-                  "CAR-T cell therapy resistance mechanisms",
-                  "Single-cell transcriptomics in cardiac regeneration",
-                  "Epigenetic regulators in AML",
-                ].map((t) => (
+                  { t: "RUNX1 in hematopoietic stem cells", r: RESOURCES[0] },
+                  { t: "CAR-T cell therapy resistance mechanisms", r: RESOURCES[1] },
+                  { t: "Single-cell transcriptomics in cardiac regeneration", r: RESOURCES[2] },
+                  { t: "Epigenetic regulators in AML", r: RESOURCES[3] },
+                ].map(({ t, r }) => (
                   <button
                     key={t}
                     onClick={() => setTopic(t)}
                     style={{
-                      padding: "8px 16px",
+                      padding: "10px 18px",
                       borderRadius: "20px",
-                      border: "1px solid var(--border)",
-                      background: "var(--bg-card)",
+                      border: `1px solid ${r.color}40`,
+                      background: `${r.color}10`,
                       color: "var(--text-secondary)",
                       fontSize: "13px",
                       cursor: "pointer",
+                      transition: "all 0.2s",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                    onMouseOver={(e) => {
+                      (e.target as HTMLButtonElement).style.borderColor = `${r.color}80`;
+                      (e.target as HTMLButtonElement).style.background = `${r.color}20`;
+                    }}
+                    onMouseOut={(e) => {
+                      (e.target as HTMLButtonElement).style.borderColor = `${r.color}40`;
+                      (e.target as HTMLButtonElement).style.background = `${r.color}10`;
                     }}
                   >
-                    {t}
+                    <span>{r.icon}</span> {t}
                   </button>
                 ))}
               </div>
@@ -738,14 +1008,13 @@ To generate a complete, publication-ready paper:
               height: "calc(100vh - 130px)",
             }}
           >
-            {/* API Key warning */}
             {apiKeyError && (
               <div
                 style={{
                   padding: "12px 16px",
                   borderRadius: "8px",
-                  background: "rgba(251, 191, 36, 0.1)",
-                  border: "1px solid rgba(251, 191, 36, 0.3)",
+                  background: "rgba(232, 168, 56, 0.1)",
+                  border: "1px solid rgba(232, 168, 56, 0.3)",
                   marginBottom: "12px",
                   fontSize: "13px",
                   color: "var(--warning)",
@@ -797,7 +1066,7 @@ To generate a complete, publication-ready paper:
                           : "16px 16px 16px 4px",
                       background:
                         msg.role === "user"
-                          ? "var(--accent-dim)"
+                          ? "linear-gradient(135deg, #c45c3e, #b8842c)"
                           : "var(--bg-card)",
                       border:
                         msg.role === "assistant"
@@ -806,6 +1075,7 @@ To generate a complete, publication-ready paper:
                       fontSize: "15px",
                       lineHeight: "1.6",
                       whiteSpace: "pre-wrap",
+                      color: msg.role === "user" ? "#f5efe6" : "var(--text-primary)",
                     }}
                   >
                     {msg.role === "assistant" && (
@@ -816,6 +1086,8 @@ To generate a complete, publication-ready paper:
                           fontWeight: 600,
                           marginBottom: "6px",
                           fontFamily: "JetBrains Mono, monospace",
+                          textTransform: "uppercase",
+                          letterSpacing: "1px",
                         }}
                       >
                         KHALESE
@@ -869,13 +1141,16 @@ To generate a complete, publication-ready paper:
                   style={{
                     flex: 1,
                     padding: "14px 20px",
-                    borderRadius: "10px",
+                    borderRadius: "12px",
                     border: "1px solid var(--border)",
                     background: "var(--bg-card)",
                     color: "var(--text-primary)",
                     fontSize: "15px",
                     outline: "none",
+                    transition: "border-color 0.3s",
                   }}
+                  onFocus={(e) => { e.target.style.borderColor = "var(--accent)"; }}
+                  onBlur={(e) => { e.target.style.borderColor = "var(--border)"; }}
                   autoFocus
                   disabled={isStreaming}
                 />
@@ -884,28 +1159,30 @@ To generate a complete, publication-ready paper:
                   disabled={!inputValue.trim() || isStreaming}
                   style={{
                     padding: "14px 24px",
-                    borderRadius: "10px",
+                    borderRadius: "12px",
                     border: "none",
                     background:
                       inputValue.trim() && !isStreaming
-                        ? "var(--accent)"
+                        ? "linear-gradient(135deg, #e8a838, #c45c3e)"
                         : "var(--bg-card)",
                     color:
                       inputValue.trim() && !isStreaming
-                        ? "#0a0f1a"
+                        ? "#1a1410"
                         : "var(--text-muted)",
-                    fontWeight: 600,
+                    fontWeight: 700,
                     cursor:
                       inputValue.trim() && !isStreaming
                         ? "pointer"
                         : "not-allowed",
+                    textTransform: "uppercase",
+                    letterSpacing: "1px",
+                    fontSize: "14px",
                   }}
                 >
                   Send
                 </button>
               </div>
 
-              {/* Skip to research button */}
               {messages.length >= 4 && (
                 <button
                   onClick={triggerManualResearch}
@@ -918,9 +1195,18 @@ To generate a complete, publication-ready paper:
                     color: "var(--text-secondary)",
                     fontSize: "13px",
                     cursor: "pointer",
+                    transition: "all 0.2s",
+                  }}
+                  onMouseOver={(e) => {
+                    (e.target as HTMLButtonElement).style.borderColor = "var(--accent)";
+                    (e.target as HTMLButtonElement).style.color = "var(--accent)";
+                  }}
+                  onMouseOut={(e) => {
+                    (e.target as HTMLButtonElement).style.borderColor = "var(--border)";
+                    (e.target as HTMLButtonElement).style.color = "var(--text-secondary)";
                   }}
                 >
-                  Skip to research — I have enough context →
+                  Skip to research — I have enough context
                 </button>
               )}
             </div>
@@ -934,25 +1220,35 @@ To generate a complete, publication-ready paper:
             style={{ maxWidth: "600px", width: "100%" }}
           >
             <div style={{ textAlign: "center", marginBottom: "40px" }}>
+              {/* Spinning hex */}
               <div
                 className="pulse-glow"
                 style={{
-                  fontSize: "48px",
+                  width: "64px",
+                  height: "74px",
+                  clipPath:
+                    "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
+                  background: "linear-gradient(135deg, #e8a838, #c45c3e)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "28px",
                   marginBottom: "16px",
-                  display: "inline-block",
-                  borderRadius: "50%",
                 }}
               >
-                🔬
+                <span style={{ animation: "diceRoll 2s ease-in-out infinite" }}>
+                  ⚗️
+                </span>
               </div>
               <h2
                 style={{
                   fontSize: "22px",
                   fontWeight: 600,
                   marginBottom: "8px",
+                  color: "var(--accent)",
                 }}
               >
-                Research in Progress
+                Gathering Resources
               </h2>
               <p style={{ color: "var(--text-secondary)", fontSize: "15px" }}>
                 {backendOnline
@@ -974,7 +1270,6 @@ To generate a complete, publication-ready paper:
 
             {/* Progress */}
             {backendOnline && runStatus ? (
-              // Real EurekaClaw status
               <div
                 style={{
                   padding: "20px",
@@ -991,10 +1286,7 @@ To generate a complete, publication-ready paper:
                   }}
                 >
                   <span
-                    style={{
-                      fontSize: "13px",
-                      color: "var(--text-muted)",
-                    }}
+                    style={{ fontSize: "13px", color: "var(--text-muted)" }}
                   >
                     Status
                   </span>
@@ -1025,7 +1317,7 @@ To generate a complete, publication-ready paper:
                       marginTop: "8px",
                       padding: "8px 12px",
                       borderRadius: "6px",
-                      background: "rgba(34, 211, 238, 0.05)",
+                      background: "rgba(232, 168, 56, 0.05)",
                       fontSize: "13px",
                     }}
                   >
@@ -1037,8 +1329,8 @@ To generate a complete, publication-ready paper:
                 ))}
               </div>
             ) : (
-              // Fallback progress steps
               <>
+                {/* Progress bar with resource colors */}
                 <div style={{ marginBottom: "32px" }}>
                   <div
                     style={{
@@ -1085,7 +1377,7 @@ To generate a complete, publication-ready paper:
                           100
                         )}%`,
                         background:
-                          "linear-gradient(90deg, #22d3ee, #10b981)",
+                          "linear-gradient(90deg, #6b8c42, #e8c845, #c45c3e, #e8a838)",
                         borderRadius: "3px",
                         transition: "width 0.5s ease",
                       }}
@@ -1111,34 +1403,35 @@ To generate a complete, publication-ready paper:
                         borderRadius: "8px",
                         background:
                           step.status === "running"
-                            ? "rgba(34, 211, 238, 0.05)"
+                            ? "rgba(232, 168, 56, 0.05)"
                             : "transparent",
                         border:
                           step.status === "running"
-                            ? "1px solid rgba(34, 211, 238, 0.15)"
+                            ? "1px solid rgba(232, 168, 56, 0.15)"
                             : "1px solid transparent",
                       }}
                     >
                       <div
                         style={{
                           width: "20px",
-                          height: "20px",
-                          borderRadius: "50%",
+                          height: "23px",
+                          clipPath:
+                            "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          fontSize: "11px",
+                          fontSize: "10px",
                           flexShrink: 0,
                           background:
                             step.status === "done"
-                              ? "var(--success)"
+                              ? RESOURCES[i % RESOURCES.length].color
                               : step.status === "running"
                               ? "var(--accent)"
                               : "var(--bg-card)",
                           color:
                             step.status === "pending"
                               ? "var(--text-muted)"
-                              : "#0a0f1a",
+                              : "#1a1410",
                           border:
                             step.status === "pending"
                               ? "1px solid var(--border)"
@@ -1199,6 +1492,7 @@ To generate a complete, publication-ready paper:
                     fontSize: "22px",
                     fontWeight: 600,
                     marginBottom: "4px",
+                    color: "var(--accent)",
                   }}
                 >
                   Research Complete
@@ -1221,6 +1515,13 @@ To generate a complete, publication-ready paper:
                     fontSize: "14px",
                     fontWeight: 500,
                     cursor: "pointer",
+                    transition: "all 0.2s",
+                  }}
+                  onMouseOver={(e) => {
+                    (e.target as HTMLButtonElement).style.background = "rgba(232, 168, 56, 0.1)";
+                  }}
+                  onMouseOut={(e) => {
+                    (e.target as HTMLButtonElement).style.background = "transparent";
                   }}
                 >
                   Copy LaTeX
@@ -1231,11 +1532,13 @@ To generate a complete, publication-ready paper:
                     padding: "10px 20px",
                     borderRadius: "8px",
                     border: "none",
-                    background: "linear-gradient(135deg, #22d3ee, #10b981)",
-                    color: "#0a0f1a",
+                    background: "linear-gradient(135deg, #e8a838, #c45c3e)",
+                    color: "#1a1410",
                     fontSize: "14px",
-                    fontWeight: 600,
+                    fontWeight: 700,
                     cursor: "pointer",
+                    textTransform: "uppercase",
+                    letterSpacing: "1px",
                   }}
                 >
                   New Research
@@ -1243,7 +1546,7 @@ To generate a complete, publication-ready paper:
               </div>
             </div>
 
-            {/* Stats */}
+            {/* Stats as resource cards */}
             <div
               style={{
                 display: "flex",
@@ -1256,18 +1559,22 @@ To generate a complete, publication-ready paper:
                 {
                   label: "Backend",
                   value: backendOnline ? "EurekaClaw Live" : "Offline Mode",
+                  resource: RESOURCES[0],
                 },
                 {
                   label: "Pipeline",
                   value: "EurekaClaw + AutoResearch",
+                  resource: RESOURCES[1],
                 },
                 {
                   label: "Output",
                   value: "LaTeX Paper",
+                  resource: RESOURCES[2],
                 },
                 {
                   label: "Status",
                   value: "Ready for Review",
+                  resource: RESOURCES[4],
                 },
               ].map((stat) => (
                 <div
@@ -1278,6 +1585,7 @@ To generate a complete, publication-ready paper:
                     borderRadius: "10px",
                     background: "var(--bg-card)",
                     border: "1px solid var(--border)",
+                    borderTop: `3px solid ${stat.resource.color}`,
                   }}
                 >
                   <div
@@ -1285,15 +1593,19 @@ To generate a complete, publication-ready paper:
                       fontSize: "12px",
                       color: "var(--text-muted)",
                       marginBottom: "4px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
                     }}
                   >
+                    <span>{stat.resource.icon}</span>
                     {stat.label}
                   </div>
                   <div
                     style={{
                       fontSize: "14px",
                       fontWeight: 600,
-                      color: "var(--accent)",
+                      color: stat.resource.color,
                     }}
                   >
                     {stat.value}
@@ -1308,7 +1620,7 @@ To generate a complete, publication-ready paper:
                 flex: 1,
                 borderRadius: "12px",
                 border: "1px solid var(--border)",
-                background: "#0d1117",
+                background: "rgba(26, 20, 16, 0.9)",
                 overflow: "hidden",
                 display: "flex",
                 flexDirection: "column",
@@ -1321,7 +1633,7 @@ To generate a complete, publication-ready paper:
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  background: "rgba(30, 41, 59, 0.5)",
+                  background: "rgba(51, 38, 28, 0.5)",
                 }}
               >
                 <span
@@ -1345,7 +1657,7 @@ To generate a complete, publication-ready paper:
                   overflow: "auto",
                   fontSize: "13px",
                   lineHeight: "1.6",
-                  color: "#c9d1d9",
+                  color: "var(--text-secondary)",
                   fontFamily: "JetBrains Mono, monospace",
                 }}
               >
@@ -1361,7 +1673,7 @@ To generate a complete, publication-ready paper:
                   fontFamily: "JetBrains Mono, monospace",
                 }}
               >
-                🧬 In Runx-1 We Trust — Khalese Lab Helper v1.0
+                In Runx-1 We Trust — Khalese Lab Helper v1.0
               </p>
             </div>
           </div>
