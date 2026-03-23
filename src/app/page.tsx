@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { AppScreen, ResearchConfig, RunStatus, GenerateEvent } from "@/lib/types";
+import type { AppScreen, ResearchConfig, RunStatus, GenerateEvent, PipelineStage } from "@/lib/types";
 
 // ─── KHALESE CHAT MESSAGE TYPE ────────────────────────────
 interface ChatMsg {
@@ -140,6 +140,11 @@ export default function KhaleseLabHelper() {
   const [fallbackSteps, setFallbackSteps] = useState<{ label: string; status: string }[]>([]);
   const [fallbackStep, setFallbackStep] = useState(0);
   const [latexOutput, setLatexOutput] = useState("");
+  const [researchStartTime, setResearchStartTime] = useState<number | null>(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [staleWarning, setStaleWarning] = useState(false);
+  const lastStatusChangeRef = useRef<number>(Date.now());
+  const lastStatusRef = useRef<string>("");
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -149,6 +154,15 @@ export default function KhaleseLabHelper() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isStreaming]);
+
+  // Elapsed time ticker for research screen
+  useEffect(() => {
+    if (screen !== "research" || !researchStartTime) return;
+    const ticker = setInterval(() => {
+      setElapsedTime(Math.floor((Date.now() - researchStartTime) / 1000));
+    }, 1000);
+    return () => clearInterval(ticker);
+  }, [screen, researchStartTime]);
 
   // ── LOGIN ──
   const handleLogin = () => {
@@ -281,6 +295,11 @@ export default function KhaleseLabHelper() {
   // ── START RESEARCH ──
   const startResearch = async (config: ResearchConfig) => {
     setScreen("research");
+    setResearchStartTime(Date.now());
+    setElapsedTime(0);
+    setStaleWarning(false);
+    lastStatusChangeRef.current = Date.now();
+    lastStatusRef.current = "";
 
     try {
       const response = await fetch("/api/research", {
@@ -318,14 +337,31 @@ export default function KhaleseLabHelper() {
   // ── POLL EUREKACLAW ──
   const startPolling = useCallback((rid: string) => {
     if (pollRef.current) clearInterval(pollRef.current);
+    let consecutiveErrors = 0;
 
     pollRef.current = setInterval(async () => {
       try {
         const response = await fetch(`/api/research/status?run_id=${rid}`);
-        if (!response.ok) return;
+        if (!response.ok) {
+          consecutiveErrors++;
+          if (consecutiveErrors >= 10) setStaleWarning(true);
+          return;
+        }
+        consecutiveErrors = 0;
 
         const data: RunStatus = await response.json();
         setRunStatus(data);
+
+        // Detect stale: build a fingerprint from pipeline statuses
+        const currentStage = data.pipeline
+          ?.find((s: PipelineStage) => s.status === "in_progress")?.name || data.status;
+        if (currentStage !== lastStatusRef.current) {
+          lastStatusRef.current = currentStage;
+          lastStatusChangeRef.current = Date.now();
+          setStaleWarning(false);
+        } else if (Date.now() - lastStatusChangeRef.current > 5 * 60 * 1000) {
+          setStaleWarning(true);
+        }
 
         if (data.status === "completed") {
           if (pollRef.current) clearInterval(pollRef.current);
@@ -337,9 +373,10 @@ export default function KhaleseLabHelper() {
           if (pollRef.current) clearInterval(pollRef.current);
         }
       } catch {
-        // Silently retry
+        consecutiveErrors++;
+        if (consecutiveErrors >= 10) setStaleWarning(true);
       }
-    }, 3000);
+    }, 5000);
   }, []);
 
   useEffect(() => {
@@ -1275,9 +1312,9 @@ To generate a complete, publication-ready paper:
         {screen === "research" && (
           <div
             className="screen-transition"
-            style={{ maxWidth: "600px", width: "100%" }}
+            style={{ maxWidth: "640px", width: "100%" }}
           >
-            <div style={{ textAlign: "center", marginBottom: "40px" }}>
+            <div style={{ textAlign: "center", marginBottom: "32px" }}>
               {/* Spinning hex */}
               <div
                 className="pulse-glow"
@@ -1313,20 +1350,66 @@ To generate a complete, publication-ready paper:
                   ? "EurekaClaw is running the full research pipeline..."
                   : `Khalese is analyzing "${topic}"`}
               </p>
-              {runStatus?.status === "failed" && (
-                <p
+
+              {/* Elapsed timer */}
+              <div
+                style={{
+                  marginTop: "12px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "6px 16px",
+                  borderRadius: "20px",
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border)",
+                  fontFamily: "JetBrains Mono, monospace",
+                  fontSize: "13px",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <span style={{ color: "var(--accent)" }}>
+                  {String(Math.floor(elapsedTime / 60)).padStart(2, "0")}:
+                  {String(elapsedTime % 60).padStart(2, "0")}
+                </span>
+                elapsed
+              </div>
+
+              {/* Stale warning */}
+              {staleWarning && (
+                <div
                   style={{
-                    color: "var(--error)",
-                    fontSize: "14px",
-                    marginTop: "8px",
+                    marginTop: "12px",
+                    padding: "10px 16px",
+                    borderRadius: "8px",
+                    background: "rgba(232, 168, 56, 0.1)",
+                    border: "1px solid rgba(232, 168, 56, 0.3)",
+                    fontSize: "13px",
+                    color: "var(--warning)",
                   }}
                 >
-                  Error: {runStatus.error}
-                </p>
+                  <strong>Heads up:</strong> No progress in the last 5 minutes.
+                  The pipeline may be stuck or the backend may be unresponsive.
+                </div>
+              )}
+
+              {runStatus?.status === "failed" && (
+                <div
+                  style={{
+                    marginTop: "12px",
+                    padding: "10px 16px",
+                    borderRadius: "8px",
+                    background: "rgba(212, 84, 84, 0.1)",
+                    border: "1px solid rgba(212, 84, 84, 0.3)",
+                    fontSize: "13px",
+                    color: "var(--error)",
+                  }}
+                >
+                  <strong>Failed:</strong> {runStatus.error}
+                </div>
               )}
             </div>
 
-            {/* Progress */}
+            {/* Progress — EurekaClaw pipeline stages */}
             {backendOnline && runStatus ? (
               <div
                 style={{
@@ -1336,55 +1419,197 @@ To generate a complete, publication-ready paper:
                   border: "1px solid var(--border)",
                 }}
               >
+                {/* Header bar */}
                 <div
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
-                    marginBottom: "12px",
+                    alignItems: "center",
+                    marginBottom: "16px",
+                    paddingBottom: "12px",
+                    borderBottom: "1px solid var(--border)",
                   }}
                 >
-                  <span
-                    style={{ fontSize: "13px", color: "var(--text-muted)" }}
-                  >
-                    Status
-                  </span>
+                  <div>
+                    <div style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "2px" }}>
+                      Session
+                    </div>
+                    <div style={{ fontSize: "13px", color: "var(--text-secondary)", fontFamily: "JetBrains Mono, monospace" }}>
+                      {(runStatus.eureka_session_id || runStatus.run_id).slice(0, 8)}...
+                    </div>
+                  </div>
                   <span
                     style={{
-                      fontSize: "13px",
-                      color: "var(--accent)",
+                      fontSize: "11px",
+                      padding: "4px 12px",
+                      borderRadius: "12px",
                       fontFamily: "JetBrains Mono, monospace",
                       textTransform: "uppercase",
+                      letterSpacing: "1px",
+                      background:
+                        runStatus.status === "running" ? "rgba(232, 168, 56, 0.1)" :
+                        runStatus.status === "completed" ? "rgba(107, 140, 66, 0.1)" :
+                        runStatus.status === "failed" ? "rgba(212, 84, 84, 0.1)" :
+                        "rgba(120, 144, 156, 0.1)",
+                      color:
+                        runStatus.status === "running" ? "var(--accent)" :
+                        runStatus.status === "completed" ? "var(--success)" :
+                        runStatus.status === "failed" ? "var(--error)" :
+                        "var(--text-muted)",
+                      border: `1px solid ${
+                        runStatus.status === "running" ? "rgba(232, 168, 56, 0.2)" :
+                        runStatus.status === "completed" ? "rgba(107, 140, 66, 0.2)" :
+                        runStatus.status === "failed" ? "rgba(212, 84, 84, 0.2)" :
+                        "rgba(120, 144, 156, 0.2)"
+                      }`,
                     }}
                   >
                     {runStatus.status}
                   </span>
                 </div>
-                <div
-                  style={{
-                    fontSize: "14px",
-                    color: "var(--text-secondary)",
-                    fontFamily: "JetBrains Mono, monospace",
-                  }}
-                >
-                  Session: {runStatus.eureka_session_id || runStatus.run_id}
-                </div>
-                {runStatus.output_summary?.agent_steps?.map((step, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      marginTop: "8px",
-                      padding: "8px 12px",
-                      borderRadius: "6px",
-                      background: "rgba(232, 168, 56, 0.05)",
-                      fontSize: "13px",
-                    }}
-                  >
-                    <span style={{ color: "var(--accent)" }}>
-                      {step.agent}
-                    </span>{" "}
-                    — {step.summary}
-                  </div>
-                ))}
+
+                {/* Pipeline progress bar */}
+                {runStatus.pipeline && runStatus.pipeline.length > 0 && (
+                  <>
+                    <div style={{ marginBottom: "16px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+                        <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>Pipeline</span>
+                        <span style={{ fontSize: "12px", color: "var(--accent)", fontFamily: "JetBrains Mono, monospace" }}>
+                          {runStatus.pipeline.filter((s: PipelineStage) => s.status === "completed").length}/{runStatus.pipeline.length}
+                        </span>
+                      </div>
+                      <div style={{ height: "4px", borderRadius: "2px", background: "rgba(74, 56, 40, 0.5)", overflow: "hidden" }}>
+                        <div
+                          style={{
+                            height: "100%",
+                            width: `${(runStatus.pipeline.filter((s: PipelineStage) => s.status === "completed").length / runStatus.pipeline.length) * 100}%`,
+                            background: "linear-gradient(90deg, #6b8c42, #e8c845, #e8a838)",
+                            borderRadius: "2px",
+                            transition: "width 0.5s ease",
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Pipeline stages */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      {runStatus.pipeline.map((stage: PipelineStage, i: number) => {
+                        let duration = "";
+                        if (stage.started_at && stage.completed_at) {
+                          const s = new Date(stage.started_at).getTime();
+                          const e = new Date(stage.completed_at).getTime();
+                          const secs = Math.round((e - s) / 1000);
+                          duration = secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
+                        } else if (stage.status === "in_progress" && stage.started_at) {
+                          const secs = Math.round((Date.now() - new Date(stage.started_at).getTime()) / 1000);
+                          duration = secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s...` : `${secs}s...`;
+                        }
+                        const resource = RESOURCES[i % RESOURCES.length];
+
+                        return (
+                          <div
+                            key={stage.task_id || i}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "10px",
+                              padding: "10px 12px",
+                              borderRadius: "8px",
+                              background:
+                                stage.status === "in_progress" ? "rgba(232, 168, 56, 0.06)" :
+                                stage.status === "failed" ? "rgba(212, 84, 84, 0.06)" :
+                                "transparent",
+                              border:
+                                stage.status === "in_progress" ? "1px solid rgba(232, 168, 56, 0.15)" :
+                                stage.status === "failed" ? "1px solid rgba(212, 84, 84, 0.15)" :
+                                "1px solid transparent",
+                            }}
+                          >
+                            {/* Hex status indicator */}
+                            <div
+                              style={{
+                                width: "22px",
+                                height: "25px",
+                                clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "10px",
+                                flexShrink: 0,
+                                background:
+                                  stage.status === "completed" ? resource.color :
+                                  stage.status === "in_progress" ? "var(--accent)" :
+                                  stage.status === "failed" ? "var(--error)" :
+                                  "var(--bg-secondary)",
+                                color:
+                                  stage.status === "pending" || stage.status === "skipped"
+                                    ? "var(--text-muted)" : "#1a1410",
+                              }}
+                            >
+                              {stage.status === "completed" ? "✓" :
+                               stage.status === "in_progress" ? "◉" :
+                               stage.status === "failed" ? "✕" : ""}
+                            </div>
+
+                            {/* Stage info */}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{
+                                fontSize: "13px",
+                                fontWeight: stage.status === "in_progress" ? 600 : 400,
+                                color:
+                                  stage.status === "completed" ? "var(--text-secondary)" :
+                                  stage.status === "in_progress" ? "var(--text-primary)" :
+                                  stage.status === "failed" ? "var(--error)" :
+                                  "var(--text-muted)",
+                                textTransform: "capitalize",
+                              }}>
+                                {stage.description || stage.name}
+                              </div>
+                              {stage.error_message && (
+                                <div style={{ fontSize: "11px", color: "var(--error)", marginTop: "2px" }}>
+                                  {stage.error_message}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Duration */}
+                            {duration && (
+                              <span style={{
+                                fontSize: "11px",
+                                fontFamily: "JetBrains Mono, monospace",
+                                color: stage.status === "in_progress" ? "var(--accent)" : "var(--text-muted)",
+                                flexShrink: 0,
+                              }}>
+                                {duration}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+
+                {/* Legacy agent_steps fallback */}
+                {(!runStatus.pipeline || runStatus.pipeline.length === 0) &&
+                  runStatus.output_summary?.agent_steps?.map((step, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        marginTop: "8px",
+                        padding: "8px 12px",
+                        borderRadius: "6px",
+                        background: "rgba(232, 168, 56, 0.05)",
+                        fontSize: "13px",
+                      }}
+                    >
+                      <span style={{ color: "var(--accent)" }}>
+                        {step.agent}
+                      </span>{" "}
+                      — {step.summary}
+                    </div>
+                  ))
+                }
               </div>
             ) : (
               <>

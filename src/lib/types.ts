@@ -7,6 +7,17 @@ export interface ResearchConfig {
   paperIds?: string[];
 }
 
+export interface PipelineStage {
+  task_id: string;
+  name: string;
+  agent_role: string;
+  status: "pending" | "in_progress" | "completed" | "failed" | "skipped";
+  description: string;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string;
+}
+
 export interface RunStatus {
   run_id: string;
   status: "queued" | "running" | "pausing" | "paused" | "resuming" | "completed" | "failed";
@@ -20,6 +31,7 @@ export interface RunStatus {
   eureka_session_id: string;
   input_spec: Record<string, unknown>;
   output_dir: string;
+  pipeline?: PipelineStage[];
   output_summary: {
     latex_paper?: string;
     pdf_path?: string;
