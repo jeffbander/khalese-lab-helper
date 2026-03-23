@@ -42,3 +42,9 @@ export interface AgentStep {
 }
 
 export type AppScreen = "login" | "topic" | "clarify" | "research" | "results";
+
+export type GenerateEvent =
+  | { type: "step"; step: number }
+  | { type: "latex"; chunk: string }
+  | { type: "done" }
+  | { type: "error"; message: string };

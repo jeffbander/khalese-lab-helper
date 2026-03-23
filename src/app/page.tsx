@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { AppScreen, ResearchConfig, RunStatus } from "@/lib/types";
+import type { AppScreen, ResearchConfig, RunStatus, GenerateEvent } from "@/lib/types";
 
 // ─── KHALESE CHAT MESSAGE TYPE ────────────────────────────
 interface ChatMsg {
@@ -348,32 +348,90 @@ export default function KhaleseLabHelper() {
     };
   }, []);
 
-  // ── FALLBACK PIPELINE ──
-  const runFallbackPipeline = (config: ResearchConfig) => {
+  // ── FALLBACK PIPELINE (AI-powered via Claude) ──
+  const runFallbackPipeline = async (config: ResearchConfig) => {
     const steps = FALLBACK_STEPS.map((label) => ({ label, status: "pending" }));
     steps[0].status = "running";
     setFallbackSteps(steps);
     setFallbackStep(0);
 
-    let step = 0;
-    const interval = setInterval(() => {
-      step++;
-      setFallbackSteps((prev) => {
-        const updated = [...prev];
-        if (step - 1 < updated.length) updated[step - 1].status = "done";
-        if (step < updated.length) updated[step].status = "running";
-        return updated;
+    try {
+      const response = await fetch("/api/research/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
       });
-      setFallbackStep(step);
 
-      if (step >= FALLBACK_STEPS.length) {
-        clearInterval(interval);
-        setTimeout(() => {
-          setLatexOutput(generateFallbackPaper(config));
-          setScreen("results");
-        }, 1000);
+      if (!response.ok) throw new Error("Generation failed");
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let latex = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith("data: ")) continue;
+
+          let event: GenerateEvent;
+          try {
+            event = JSON.parse(line.slice(6));
+          } catch {
+            continue;
+          }
+
+          if (event.type === "step") {
+            setFallbackSteps((prev) => {
+              const updated = [...prev];
+              for (let i = 0; i < event.step && i < updated.length; i++) {
+                updated[i].status = "done";
+              }
+              if (event.step < updated.length) {
+                updated[event.step].status = "running";
+              }
+              return updated;
+            });
+            setFallbackStep(event.step);
+          } else if (event.type === "latex") {
+            latex += event.chunk;
+          } else if (event.type === "done") {
+            // Mark all steps done
+            setFallbackSteps((prev) =>
+              prev.map((s) => ({ ...s, status: "done" }))
+            );
+            setFallbackStep(FALLBACK_STEPS.length);
+            setLatexOutput(latex);
+            setTimeout(() => setScreen("results"), 500);
+            return;
+          } else if (event.type === "error") {
+            throw new Error(event.message);
+          }
+        }
       }
-    }, 2000);
+
+      // Stream ended — show results if we have latex
+      if (latex) {
+        setFallbackSteps((prev) =>
+          prev.map((s) => ({ ...s, status: "done" }))
+        );
+        setLatexOutput(latex);
+        setScreen("results");
+      } else {
+        throw new Error("No content generated");
+      }
+    } catch (err) {
+      console.error("AI generation failed, using static template:", err);
+      setLatexOutput(generateFallbackPaper(config));
+      setScreen("results");
+    }
   };
 
   // ── FALLBACK PAPER GENERATOR ──
