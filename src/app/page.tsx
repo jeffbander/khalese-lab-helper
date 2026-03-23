@@ -164,6 +164,72 @@ export default function KhaleseLabHelper() {
     return () => clearInterval(ticker);
   }, [screen, researchStartTime]);
 
+  // ── SESSION RECOVERY ──
+  // Save session to localStorage when a run starts
+  const saveSession = useCallback((rid: string, topicStr: string, startTime: number) => {
+    try {
+      localStorage.setItem("khalese_session", JSON.stringify({
+        runId: rid,
+        topic: topicStr,
+        startTime,
+      }));
+    } catch { /* localStorage unavailable */ }
+  }, []);
+
+  const clearSession = useCallback(() => {
+    try { localStorage.removeItem("khalese_session"); } catch { /* noop */ }
+  }, []);
+
+  // On mount: check for an active session to resume
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("khalese_session");
+      if (!saved) return;
+      const session = JSON.parse(saved);
+      if (!session.runId) return;
+
+      // Check if this session is still running on the backend
+      fetch(`/api/research/status?run_id=${session.runId}`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => {
+          if (!data || data.error) {
+            clearSession();
+            return;
+          }
+          // If completed, show results
+          if (data.status === "completed") {
+            setTopic(session.topic || "");
+            setRunId(session.runId);
+            setRunStatus(data);
+            setBackendOnline(true);
+            if (data.output_summary?.latex_paper) {
+              setLatexOutput(data.output_summary.latex_paper);
+            }
+            setScreen("results");
+            clearSession();
+            return;
+          }
+          // If failed, clear
+          if (data.status === "failed") {
+            clearSession();
+            return;
+          }
+          // Still running — resume polling
+          setTopic(session.topic || "");
+          setRunId(session.runId);
+          setRunStatus(data);
+          setBackendOnline(true);
+          setResearchStartTime(session.startTime || Date.now());
+          setScreen("research");
+          startPolling(session.runId);
+        })
+        .catch(() => {
+          clearSession();
+        });
+    } catch { /* localStorage unavailable */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── LOGIN ──
   const handleLogin = () => {
     if (passcode === "071195") {
@@ -316,8 +382,10 @@ export default function KhaleseLabHelper() {
 
       if (response.ok) {
         const data = await response.json();
+        const startTime = Date.now();
         setRunId(data.run_id);
         setBackendOnline(true);
+        saveSession(data.run_id, topic, startTime);
         startPolling(data.run_id);
         return;
       }
@@ -375,16 +443,18 @@ export default function KhaleseLabHelper() {
           if (data.output_summary?.latex_paper) {
             setLatexOutput(data.output_summary.latex_paper);
           }
+          clearSession();
           setScreen("results");
         } else if (data.status === "failed") {
           if (pollRef.current) clearInterval(pollRef.current);
+          clearSession();
         }
       } catch {
         consecutiveErrors++;
         if (consecutiveErrors >= 10) setStaleWarning(true);
       }
     }, 5000);
-  }, []);
+  }, [clearSession]);
 
   useEffect(() => {
     return () => {
@@ -576,6 +646,7 @@ To generate a complete, publication-ready paper:
     setRunStatus(null);
     setLatexOutput("");
     setFallbackSteps([]);
+    clearSession();
     setScreen("topic");
   };
 
