@@ -146,6 +146,8 @@ export default function KhaleseLabHelper() {
   const lastStatusChangeRef = useRef<number>(Date.now());
   const lastStatusRef = useRef<string>("");
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
+  const [pastRuns, setPastRuns] = useState<RunStatus[]>([]);
+  const [loadingRuns, setLoadingRuns] = useState(false);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -229,6 +231,54 @@ export default function KhaleseLabHelper() {
     } catch { /* localStorage unavailable */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Fetch past runs when topic screen is shown
+  const fetchPastRuns = useCallback(async () => {
+    setLoadingRuns(true);
+    try {
+      const response = await fetch("/api/research");
+      if (response.ok) {
+        const data = await response.json();
+        const runs: RunStatus[] = data.runs || data || [];
+        // Sort by created_at descending, take last 10
+        runs.sort((a: RunStatus, b: RunStatus) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        setPastRuns(runs.slice(0, 10));
+      }
+    } catch { /* backend offline */ }
+    setLoadingRuns(false);
+  }, []);
+
+  useEffect(() => {
+    if (screen === "topic") fetchPastRuns();
+  }, [screen, fetchPastRuns]);
+
+  // Resume a past run
+  const resumeRun = (run: RunStatus) => {
+    setRunId(run.run_id);
+    setRunStatus(run);
+    setTopic((run.input_spec?.query as string) || "");
+    setBackendOnline(true);
+
+    if (run.status === "completed") {
+      if (run.output_summary?.latex_paper) {
+        setLatexOutput(run.output_summary.latex_paper);
+      }
+      setScreen("results");
+    } else if (run.status === "running" || run.status === "queued") {
+      setResearchStartTime(new Date(run.started_at || run.created_at).getTime());
+      setStaleWarning(false);
+      lastStatusChangeRef.current = Date.now();
+      lastStatusRef.current = "";
+      saveSession(run.run_id, (run.input_spec?.query as string) || "", Date.now());
+      setScreen("research");
+      startPolling(run.run_id);
+    } else {
+      // failed or other — show research screen with error
+      setScreen("research");
+    }
+  };
 
   // ── LOGIN ──
   const handleLogin = () => {
@@ -1166,6 +1216,125 @@ To generate a complete, publication-ready paper:
                 ))}
               </div>
             </div>
+
+            {/* Recent Sessions */}
+            {pastRuns.length > 0 && (
+              <div style={{ marginTop: "32px", width: "100%" }}>
+                <div className="road-line" style={{ width: "40%", margin: "0 auto 20px" }} />
+                <p
+                  style={{
+                    fontSize: "13px",
+                    color: "var(--text-muted)",
+                    marginBottom: "12px",
+                    fontFamily: "JetBrains Mono, monospace",
+                    textTransform: "uppercase",
+                    letterSpacing: "1px",
+                  }}
+                >
+                  Recent Sessions {loadingRuns && "..."}
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {pastRuns.map((run) => {
+                    const query = (run.input_spec?.query as string) || "Untitled";
+                    const completed = run.pipeline?.filter((s) => s.status === "completed").length ?? 0;
+                    const total = run.pipeline?.length ?? 0;
+                    const statusColor =
+                      run.status === "completed" ? "var(--success)" :
+                      run.status === "running" ? "var(--accent)" :
+                      run.status === "failed" ? "var(--error)" :
+                      "var(--text-muted)";
+                    const date = new Date(run.created_at);
+                    const timeStr = date.toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
+                      " " + date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+
+                    return (
+                      <button
+                        key={run.run_id}
+                        onClick={() => resumeRun(run)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "12px",
+                          padding: "12px 16px",
+                          borderRadius: "10px",
+                          border: "1px solid var(--border)",
+                          background: "var(--bg-card)",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          width: "100%",
+                          transition: "border-color 0.2s, background 0.2s",
+                        }}
+                        onMouseOver={(e) => {
+                          (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--accent)";
+                          (e.currentTarget as HTMLButtonElement).style.background = "var(--bg-card-hover)";
+                        }}
+                        onMouseOut={(e) => {
+                          (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
+                          (e.currentTarget as HTMLButtonElement).style.background = "var(--bg-card)";
+                        }}
+                      >
+                        {/* Status hex */}
+                        <div
+                          style={{
+                            width: "24px",
+                            height: "28px",
+                            clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
+                            background: statusColor,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "10px",
+                            color: "#1a1410",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {run.status === "completed" ? "✓" :
+                           run.status === "running" ? "◉" :
+                           run.status === "failed" ? "✕" : "?"}
+                        </div>
+
+                        {/* Info */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{
+                            fontSize: "13px",
+                            color: "var(--text-primary)",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}>
+                            {query}
+                          </div>
+                          <div style={{
+                            fontSize: "11px",
+                            color: "var(--text-muted)",
+                            fontFamily: "JetBrains Mono, monospace",
+                            marginTop: "2px",
+                          }}>
+                            {timeStr} · {total > 0 ? `${completed}/${total} stages` : run.status}
+                          </div>
+                        </div>
+
+                        {/* Status badge */}
+                        <span style={{
+                          fontSize: "10px",
+                          padding: "3px 8px",
+                          borderRadius: "10px",
+                          background: `${statusColor}15`,
+                          color: statusColor,
+                          fontFamily: "JetBrains Mono, monospace",
+                          textTransform: "uppercase",
+                          flexShrink: 0,
+                        }}>
+                          {run.status === "completed" ? "View" :
+                           run.status === "running" ? "Resume" :
+                           run.status}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
