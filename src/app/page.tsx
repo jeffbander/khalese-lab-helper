@@ -59,7 +59,7 @@ export default function KhaleseLabHelper() {
 
   // ── LOGIN ──
   const handleLogin = () => {
-    if (passcode === "123456") {
+    if (passcode === "071195") {
       setLoginError(false);
       setScreen("topic");
     } else {
